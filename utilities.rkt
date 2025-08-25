@@ -54,6 +54,9 @@ collection of list utilities
       )
   )
 
+;; only property needed for flag-compare is hashability
+;; base-case is probably a kludge that can be engineered away but not a huge priority
+
 (define (flag-compare xs ys [base-case #f])
   (define bkt (make-hash))
   (for-each (lambda (x) (hash-set! bkt x base-case)) xs)
@@ -351,8 +354,20 @@ function: qualify-lists
     )
   )
 
-;; this function does not need to be tested since it uses previously tested functions;
-;; this is just a convenience function
+(module+ test
+
+  ;; commutativity does not need to be tested, only that the decision branches are appropriately reached
+  
+  (run-tests
+   (test-suite "qualify-lists tests"
+               (test-case "l1 & l1 'identical" #t)
+               (test-case "l1 & correct-slash-1 'strict-superset" #t)
+               (test-case "correct-slash-1 & l1 'strict-subset" #t)
+               (test-case "correct-delta & l1 'mixed-bag" #t)
+               (test-case "l1 & l3 'disjoint" #t)
+               )
+   )
+  )
 
 #|
 file utilities
@@ -472,9 +487,9 @@ file utilities
 (define (verify-file-by-def def [base-dir (interpret-path "~")] [strict? #f])
   (define fp (build-path base-dir (file-def-name def)))
   (cond
-    [(and (file-exists? fp) (not strict?))
-     'success]
-    [(and (file-exists? fp) strict? (equal? (file->bytes fp) (file-def->bytes file-def)))
+    [(or
+     (and (file-exists? fp) (not strict?))
+     (and (file-exists? fp) strict? (equal? (file->bytes fp) (file-def->bytes file-def))))
      'success]
     [(and (file-exists? fp) strict? (not (equal? (file->bytes fp) (file-def->bytes file-def))))
      'exists-but-different]
@@ -483,30 +498,34 @@ file utilities
     )
   )
 
+(module+ test
+
+  (run-tests
+   (test-suite "verify-file-by-def tests"
+               (test-case "verify-file-by-def 'success test not-strict" #t)
+               (test-case "verify-file-by-def 'success test strict" #t)
+               (test-case "verify-file-by-def 'exists-but-different" #t)
+               (test-case "verify-file-by-def 'does-not-exist" #t)
+               )
+   )
+  
+  )
+
 (define (delete-file-from-def file-def [base-dir (interpret-path "~")] [strict? #f])
   (define fp (build-path base-dir (file-def-name file-def)))
   (define verification (verify-file-by-def file-def base-dir strict?))
-  (cond
-    [(equal? 'success verification)
-     (begin
-       (delete-file fp)
-       'success
-       )]
-    [else verification]
-    )
+  (when (equal? verification 'success) (delete-file fp))
+  verification
   )
 
 (module+ test
 
   (run-tests
-   (test-suite "verify-file-by-def tests"
-               (test-case "bunk" #t)
-               )
-   )
-
-  (run-tests
    (test-suite "delete-file-from-def tests"
-               (test-case "bunk" #t)
+               (test-case "delete-file-from-def 'success not-strict" #t)
+               (test-case "delete-file-from-def 'success strict" #t)
+               (test-case "delete-file-from-def 'exists-but-different" #t)
+               (test-case "delete-file-from-def 'does-not-exist" #t)
                )
    )
 
@@ -518,6 +537,88 @@ dir-tree utilities
 |#
 
 (struct dir-tree (name files children) #:transparent)
+
+(define (list-of-file-def? xs)
+  (andmap (lambda (x) (file-def? x)) xs)
+  )
+
+(define (list-of-dir-tree? xs)
+  (andmap (lambda (x) (dir-tree? x)) xs)
+  )
+
+(define (make-dir-tree name files children)
+  (define legal-name? (string? name))
+  (define legal-files? (list-of-file-def? files))
+  (define legal-children? (list-of-dir-tree? children))
+  (cond
+    [(and legal-name? legal-files? legal-children?) (dir-tree name files children)]
+    [(not legal-name?) (raise-arguments-error 'invalid-name-make-dir-tree
+                                              "make-dir-tree requires name to be a string"
+                                              "name" name)]
+    [(not legal-files?) (raise-arguments-error 'invalid-files-make-dir-tree
+                                               "make-dir-tree requires files to be a list of file-def"
+                                               "files" files)]
+    [(not legal-children?) (raise-arguments-error 'invalid-children-make-dir-tree
+                                                  "make-dir-tree requires children to be a list of dir-tree"
+                                                  "children" children)]
+    )
+  )
+
+(module+ test
+
+  (define dt-1 (dir-tree "test1" '() '()))
+  (define dt-2 (dir-tree "test2" '() (list dt-1)))
+  (define dt-3 (dir-tree "test3" (list tf-1) (list dt-1)))
+
+  (run-tests
+   (test-suite "make-dir-tree tests"
+               (test-case "string name, empty files, empty children"
+                          (check-equal? (make-dir-tree "test1" '() '()) dt-1)
+                          )
+               (test-case "string name, empty files, non-empty children"
+                          (check-equal? (make-dir-tree "test2" '() (list dt-1)) dt-2)
+                          )
+               (test-case "string name, non-empty files, non-empty children"
+                          (check-equal? (make-dir-tree (list tf-1) (list dt-1)) dt-3)
+                          )
+               (test-case "error: 'dir-tree-non-string-name"
+                          (check-exn
+                           exn:fail?
+                           (lambda () (make-dir-tree 1 '() '()))
+                           )
+                          )
+               (test-case "error: 'dir-tree-bad-files"
+                          (check-exn
+                           exn:fail?
+                           (lambda () (make-dir-tree "test" (list 1) '()))
+                           )
+                          )
+               (test-case "error: 'dir-tree-bad-children"
+                          check-exn
+                          exn:fail?
+                          (lambda () (make-dir-tree "test" '() (list 1)))
+                          )
+               )
+   )
+  )
+
+(define (verify-dir-by-tree dir-tree [base-dir (interpret-path "~")] [strict? #f])
+  #t
+  )
+
+(module+ test
+
+  (run-tests
+   (test-suite "verify-dir-by-tree tests"
+               (test-case "verify-dir-by-tree empty files, empty children 'success" #t)
+               (test-case "verify-dir-by-tree empty files, non-empty children 'success" #t)
+               (test-case "verify-dir-by-tree non-empty files, non-empty children 'success" #t)
+               (test-case "verify-dir-by-tree multiply-nested 'success" #t)
+               (test-case "verify-dir-by-tree 'does-not-exist" #t)
+               (test-case "verify-dir-by-tree 'exists-but-different" #t)
+               )
+   )
+  )
 
 (define (dir-from-tree dir-tree [base-dir (interpret-path "~")])
   (define dir (build-path base-dir (dir-tree-name dir-tree)))
@@ -538,22 +639,24 @@ dir-tree utilities
 
   (run-tests
    (test-suite "dir-from-tree tests"
-               (test-case "bunk" #t)
-               )
-   )
-
-  (run-tests
-   (test-suite "delete-tree-by-dir tests"
-               (test-case "bunk" #t)
-               )
-   )
-
-  (run-tests
-   (test-suite "dir-is-compliant? tests"
-               (test-case "bunk" #t)
+               (test-case "dir-from-tree empty files, empty children test" #t)
                )
    )
   )
+
+(define (delete-dir-by-tree dir-tree [base-dir (interpret-path "~")] [strict? #f])
+  #t
+  )
+
+(module+ test
+
+  (run-tests
+   (test-suite "delete-dir-by-tree tests"
+               (test-case "delete-dir-by-tree 'success" #t)
+               )
+   )
+  )
+
 
 
 #|
