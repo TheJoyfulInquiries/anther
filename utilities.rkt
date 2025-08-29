@@ -378,15 +378,26 @@ file utilities
 (define file-def/c (struct/c file-def string? string?))
 
 (define (file-def->bytes def)
-  (file-def-content def)
+  (string->bytes/utf-8 (file-def-content def))
+  )
+
+(module+ test
+
+  (run-tests
+   (test-suite "file-def->bytes test"
+               (test-case "ensure file-def works correctly for string content"
+                          (check-equal? (string->bytes/utf-8 "test") (file-def->bytes (file-def "test-file-1" "test")))
+                          )
+               )
+   )
   )
 
 (define (make-file-def name [content ""])
   (cond
     [(and (string? name) (string? content)) (file-def name content)]
     [else (error 'make-file-def
-          (string-append "File definitions must have string for both content and name!"
-                         (format "make-file-def was called with (name: ~a) (content: ~a)" name content)))]
+                 (string-append "File definitions must have string for both content and name!"
+                                (format "make-file-def was called with (name: ~a) (content: ~a)" name content)))]
     )
   )
 
@@ -484,14 +495,14 @@ file utilities
    )
   )
 
-(define (verify-file-by-def def [base-dir (interpret-path "~")] [strict? #f])
+(define (verify-file-by-def def [base-dir (interpret-path "~")] #:strict? [strict? #f])
   (define fp (build-path base-dir (file-def-name def)))
   (cond
     [(or
      (and (file-exists? fp) (not strict?))
-     (and (file-exists? fp) strict? (equal? (file->bytes fp) (file-def->bytes file-def))))
+     (and (file-exists? fp) strict? (equal? (file->bytes fp) (file-def->bytes def))))
      'success]
-    [(and (file-exists? fp) strict? (not (equal? (file->bytes fp) (file-def->bytes file-def))))
+    [(and (file-exists? fp) strict? (not (equal? (file->bytes fp) (file-def->bytes def))))
      'exists-but-different]
     [(not (file-exists? fp))
      'does-not-exist]
@@ -502,13 +513,28 @@ file utilities
 
   (run-tests
    (test-suite "verify-file-by-def tests"
-               (test-case "verify-file-by-def 'success test not-strict" #t)
-               (test-case "verify-file-by-def 'success test strict" #t)
-               (test-case "verify-file-by-def 'exists-but-different" #t)
-               (test-case "verify-file-by-def 'does-not-exist" #t)
+               #:after (
+                        lambda ()
+                         (when (file-exists? fp-1) (delete-file fp-1))
+                         )               
+               (test-case "verify-file-by-def 'success test not-strict"
+                          (file-from-def tf-1)
+                          (check-equal? 'success (verify-file-by-def tf-1))
+                          )
+               (test-case "verify-file-by-def 'success test strict"
+                          (file-from-def tf-1)
+                          (check-equal? 'success (verify-file-by-def tf-1 #:strict? #t))
+                          )
+               (test-case "verify-file-by-def 'exists-but-different"
+                          (file-from-def tf-1)
+                          (check-equal? 'exists-but-different
+                                        (verify-file-by-def (make-file-def "test-file-1" "oopsie") #:strict? #t))
+                          )
+               (test-case "verify-file-by-def 'does-not-exist"
+                          (check-equal? 'does-not-exist (verify-file-by-def (make-file-def "fakey")))
+                          )
                )
    )
-  
   )
 
 (define (delete-file-from-def file-def [base-dir (interpret-path "~")] [strict? #f])
@@ -546,6 +572,30 @@ dir-tree utilities
   (andmap (lambda (x) (dir-tree? x)) xs)
   )
 
+(module+ test
+
+  (define fd-xs-1 '())
+  (define fd-xs-2 (list tf-1 tf-2))
+  (define dt-xs-1 '())
+  (define dt-xs-2 (list (dir-tree "test" '() '())))
+
+  (run-tests
+   (test-suite "testing list-of-file-def?"
+               (test-case "fd-xs-1 true" (check-true (list-of-file-def? fd-xs-1)))
+               (test-case "fd-xs-2 true" (check-true (list-of-file-def? fd-xs-2)))
+               (test-case "l1 not true" (check-true (not (list-of-file-def? l1))))
+               )
+   )
+
+  (run-tests
+   (test-suite "testing list-of-dir-tree?"
+               (test-case "dt-xs-1 true" (check-true (list-of-dir-tree? dt-xs-1)))
+               (test-case "dt-xs-2 true" (check-true (list-of-dir-tree? dt-xs-2)))
+               (test-case "l1 not true" (check-true (not (list-of-dir-tree? l1))))
+               )
+   )
+  )
+
 (define (make-dir-tree name files children)
   (define legal-name? (string? name))
   (define legal-files? (list-of-file-def? files))
@@ -579,7 +629,7 @@ dir-tree utilities
                           (check-equal? (make-dir-tree "test2" '() (list dt-1)) dt-2)
                           )
                (test-case "string name, non-empty files, non-empty children"
-                          (check-equal? (make-dir-tree (list tf-1) (list dt-1)) dt-3)
+                          (check-equal? (make-dir-tree "test3" (list tf-1) (list dt-1)) dt-3)
                           )
                (test-case "error: 'dir-tree-non-string-name"
                           (check-exn
