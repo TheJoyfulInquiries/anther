@@ -289,19 +289,21 @@ boolean checks for set properties
                (test-case "test that l1 is not a subset of l1"
                           (check-not-strict-subset? l1 l1)
                           )
-               (test-case "test that l1 is not a subset of l2"
-                          (check-not-strict-subset? l1 l2)
+               (test-case "test that l1 is not a subset of correct-slash-2"
+                          (check-not-strict-subset? l1 correct-slash-2)
                           )
                )
    )
 
+  (define mb-test '(1 2 7 8))
+  
   (run-tests
    (test-suite "mixed-bag tests"
                (test-case "test that correct-delta is a mixed-bag with l1"
-                          (check-mixed-bag? correct-delta l1)
+                          (check-mixed-bag? mb-test l1)
                           )
                (test-case "same but commutativity"
-                          (check-mixed-bag? l1 correct-delta)
+                          (check-mixed-bag? l1 mb-test)
                           )
                (test-case "test that null is not a mixed bag with l1"
                           (check-not-mixed-bag? '() l1)
@@ -309,8 +311,8 @@ boolean checks for set properties
                (test-case "test that l1 is not a mixed bag of l1"
                           (check-not-mixed-bag? l1 l1)
                           )
-               (test-case "test that l1 is not a mixed bag of l2"
-                          (check-not-mixed-bag? l2 l2)
+               (test-case "test that l1 is not a mixed bag of correct-slash-2"
+                          (check-not-mixed-bag? l1 correct-slash-2)
                           )
                )
    )
@@ -368,6 +370,287 @@ function: qualify-lists
                )
    )
   )
+
+
+#|
+
+|#
+
+(define (list-of-symbols? xs)
+  (andmap (lambda (x) (symbol? x)) xs)
+  )
+
+(module+ test
+
+  (let*
+      (
+       [test-list-1 '()]
+       [test-list-2 '(test1 test2 test3)]
+       [test-list-3 (list 'test1 1)]
+       [test-list-4 (list 1 2)]
+       )
+    (run-tests
+     (test-suite "list-of-symbols? tests"
+                 (test-case "empty #t"
+                            (check-equal? (list-of-symbols? test-list-1) #t)
+                            )
+                 (test-case "test-list-2 #t"
+                            (check-equal? (list-of-symbols? test-list-2) #t)
+                            )
+                 (test-case "test-list-3 #f"
+                            (check-equal? (list-of-symbols? test-list-3) #f)
+                            )
+                 (test-case "test-list-4 #f"
+                            (check-equal? (list-of-symbols? test-list-4) #f)
+                            )
+                 )
+     )
+    )
+  )
+
+(define (summarize-list-of-symbols xs)
+  (if (list-of-symbols? xs)
+      (let* (
+             [bkt (make-hash)]
+             )
+        (for-each (lambda (x)
+                    (let*
+                        (
+                         [key-exists? (hash-ref bkt x #f)]
+                         [value (if key-exists? (+ key-exists? 1) 1)]
+                         )
+                      (hash-set! bkt x value)
+                      )
+                    )
+                  xs
+                  )
+        bkt
+        )
+      'not-list-of-symbols
+      )
+  )
+
+
+(module+ test
+
+  (let*
+      (
+       [test-list-1 '()]
+
+       [test-list-2 '(apple banana apple banana orange peach tree)]
+       [test-verification-2 (make-hash '([banana . 2] [apple . 2] [orange . 1] [peach . 1] [tree . 1]))]
+
+       [test-list-3 '(apple 1)]
+       )
+    (run-tests
+     (test-suite "summarize-list-of-symbols tests"
+                 (test-case "test-list-1 success"
+                            (check-equal? (make-hash) (summarize-list-of-symbols test-list-1))
+                            )
+                 (test-case "test-list-2 success"
+                            (check-equal? test-verification-2 (summarize-list-of-symbols test-list-2))
+                            )
+                 (test-case "test-list-3"
+                            (check-equal? 'not-list-of-symbols (summarize-list-of-symbols test-list-3))
+                            )
+                 )
+     )
+    )
+  )
+
+(define (ensure-symbols xs legal-symbols)
+  (define summary (summarize-list-of-symbols xs))
+  (if (equal? summary 'not-list-of-symbols)
+      'not-list-of-symbols
+      (let*
+          (
+           [summary-keys (hash-keys summary)]
+           [quality (cond
+                      [(and (empty? xs) (empty? legal-symbols)) 'empty]
+                      [(empty? xs) 'empty-xs]
+                      [(empty? legal-symbols) 'empty-legal-symbols]
+                      [else (qualify-lists summary-keys legal-symbols)]
+                      )]
+           )
+        (match quality
+          ['identical 'success]
+          ['strict-subset 'some-legal-symbols-absent]
+          ['strict-superset 'non-legal-symbols-also-present]
+          ['mixed-bag 'some-symbols-legal-some-not]
+          ['disjoint 'no-legal-symbols-present]
+          [else quality]
+          )
+        )
+      )
+  )
+
+(module+ test
+  
+  (let*
+      (
+       [test-list-1 '(apple banana)]
+       [test-list-2 '(apple banana apple banana banana banana apple banana apple)]
+       [test-list-3 '(apple apple apple apple)]
+       [test-list-4 '(apple banana orange)]
+       [test-list-5 '(apple orange)]
+       [test-list-6 '(pizza pasta pepperoni)]
+       )
+    (run-tests
+     (test-suite "ensure-symbols tests"
+                 (test-case "empty xs, empty legal-symbols, 'empty"
+                            (check-equal? (ensure-symbols '() '()) 'empty)
+                            )
+                 (test-case "empty xs, non-empty legal-symbols, 'empty-xs"
+                            (check-equal? (ensure-symbols '() test-list-1) 'empty-xs)
+                            )
+                 (test-case "non-empty xs, empty legal-symbols, 'empty-legal-symbols"
+                            (check-equal? (ensure-symbols test-list-1 '()) 'empty-legal-symbols)
+                            )
+                 
+                 (test-case "non-empty xs, non-empty legal-symbols, 'success"
+                            (check-equal? (ensure-symbols test-list-2 test-list-1) 'success)
+                            )
+                 (test-case "same but commutative"
+                            (check-equal? (ensure-symbols test-list-1 test-list-2) 'success)
+                            )
+                 
+                 (test-case "non-empty xs, non-empty legal-symbols, 'some-legal-symbols-absent"
+                            (check-equal? (ensure-symbols test-list-3 test-list-1) 'some-legal-symbols-absent)
+                            )
+                 (test-case "same but anticommutative"
+                            (check-equal? (ensure-symbols test-list-1 test-list-3) 'non-legal-symbols-also-present)
+                            )
+                 
+                 (test-case "non-empty xs, non-empty legal-symbols, 'non-legal-symbols-also-present"
+                            (check-equal? (ensure-symbols test-list-4 test-list-1) 'non-legal-symbols-also-present)
+                            )
+                 (test-case "same but anticommutative"
+                            (check-equal? (ensure-symbols test-list-1 test-list-4) 'some-legal-symbols-absent)
+                            )
+                 
+                 (test-case "non-empty xs, non-empty legal-symbols, 'some-symbols-legal-some-not"
+                            (check-equal? (ensure-symbols test-list-1 test-list-5) 'some-symbols-legal-some-not)
+                            )
+                 (test-case "same but commutative"
+                            (check-equal? (ensure-symbols test-list-5 test-list-1) 'some-symbols-legal-some-not)
+                            )
+                 
+                 (test-case "non-empty xs, non-empty legal-symbols, 'no-legal-symbols-present"
+                            (check-equal? (ensure-symbols test-list-6 test-list-1) 'no-legal-symbols-present)
+                            )
+                 (test-case "same but commutative"
+                            (check-equal? (ensure-symbols test-list-1 test-list-6) 'no-legal-symbols-present)
+                            )
+                 )
+     )
+    )
+  )
+
+(define (symbols-ensured? xs legal-symbols)
+  (define result (ensure-symbols xs legal-symbols))
+  (match result
+    ['success #t]
+    [else #f]
+    )
+  )
+
+(module+ test
+
+  (let* (
+         [test-list-1 '(apple banana)]
+         [test-list-2 '(apple banana apple banana banana apple apple banana)]
+         [test-list-3 '(pasta pizza pepperoni)]
+         )
+    (run-tests
+     (test-suite "symbols-ensured? tests"
+                 (test-case "two empties #f"
+                            (check-false (symbols-ensured? '() '()))
+                            )
+                 (test-case "test-list-1 and -2 #t"
+                            (check-true (symbols-ensured? test-list-1 test-list-2))
+                            )
+                 (test-case "same but commutative"
+                            (check-true (symbols-ensured? test-list-2 test-list-1))
+                            )
+                 )
+     )
+    )
+  )
+
+(define (ensure-only-one-symbol xs x)
+  (when (not (list-of-symbols? xs)) (raise-argument-error 'ensure-only-one-symbol
+                                                          "xs must be list of symbols!"
+                                                          xs)
+                                                          )
+  (when (not (symbol? x)) (raise-argument-error 'ensure-only-one-symbol
+                                                "x must be symbol!"
+                                                x)
+                                                )
+  (ensure-symbols xs (list x))
+  )
+
+(module+ test
+
+  (let*
+      (
+       [test-list-1 '(apple apple apple apple)]
+       [test-symbol-1 'apple]
+
+       [test-list-2 '(apple banana orange)]
+       [test-list-3 '(banana orange peach)]
+       )
+    (run-tests
+     (test-suite "ensure-only-one-symbol tests"
+                 (test-case "'success"
+                            (check-equal? (ensure-only-one-symbol test-list-1 test-symbol-1) 'success)
+                            )
+                 (test-case "'non-legal-symbols-also-present"
+                            (check-equal? (ensure-only-one-symbol test-list-2 test-symbol-1)
+                                          'non-legal-symbols-also-present)
+                            )
+                 (test-case "'no-legal-symbols-present"
+                            (check-equal? (ensure-only-one-symbol test-list-3 test-symbol-1)
+                                          'no-legal-symbols-present)
+                            )
+                 )
+     )
+    )
+  )
+
+(define (single-symbol-ensured? xs x)
+  (define result (ensure-only-one-symbol xs x))
+  (match result
+    ['success #t]
+    [else #f]
+    )
+  )
+
+(module+ test
+
+  (let* (
+         [test-symbol-1 'apple]
+         [test-list-1 '(apple apple apple apple apple)]
+         [test-list-2 '(apple banana)]
+         [test-list-3 '(pizza pasta pepperoni)]
+         )
+    (run-tests
+     (test-suite "single-symbol-ensured? tests"
+                 (test-case "test-list-1 & test-symbol-1 #t"
+                            (check-true (single-symbol-ensured? test-list-1 test-symbol-1)
+                                        ))
+                 (test-case "test-list-2 & test-symbol-1 #f"
+                            (check-false (single-symbol-ensured? test-list-2 test-symbol-1)
+                                         ))
+                 (test-case "test-list-3 & test-symbol-1 #f"
+                            (check-false (single-symbol-ensured? test-list-3 test-symbol-1)
+                                         ))
+                 )
+     )
+    )
+  )
+
+(define (curry-symbol-into-single-symbol-ensured symbol)
+  (lambda (xs) (single-symbol-ensured? xs symbol)))
 
 #|
 file utilities
@@ -440,7 +723,6 @@ file utilities
                           )
                )
    )
-  
   )
 
 (define (file-from-def def [base-dir (interpret-path "~")] [overwrite? #f])
@@ -452,6 +734,7 @@ file utilities
      (let ([result (if (file-exists? fp) 'successfully-overwritten 'successfully-created)])
        (call-with-atomic-output-file fp (lambda (out tf) (display (file-def-content def) out)))
        result)]))
+
 
 (module+ test
 
@@ -491,6 +774,24 @@ file utilities
                             (check-true (and (file-exists? fp) (equal? result 'file-already-exists)))
                             )
                           )
+               )
+   )
+  )
+
+(define (list-of-file-def? xs)
+  (andmap (lambda (x) (file-def? x)) xs)
+  )
+
+(module+ test
+
+  (define fd-xs-1 '())
+  (define fd-xs-2 (list tf-1 tf-2))
+
+  (run-tests
+   (test-suite "testing list-of-file-def?"
+               (test-case "fd-xs-1 true" (check-true (list-of-file-def? fd-xs-1)))
+               (test-case "fd-xs-2 true" (check-true (list-of-file-def? fd-xs-2)))
+               (test-case "l1 not true" (check-true (not (list-of-file-def? l1))))
                )
    )
   )
@@ -537,6 +838,237 @@ file utilities
    )
   )
 
+(define (all-success? xs)
+  (single-symbol-ensured? xs 'success)
+  )
+
+(define (some-exist? xs)
+  (equal? (ensure-only-one-symbol xs 'does-not-exist) 'non-legal-symbols-also-present)
+  )
+
+(define (none-exist? xs)
+  (single-symbol-ensured? xs 'does-not-exist)
+  )
+
+(define (all-exist-but-some-different? xs)
+  (equal? (ensure-only-one-symbol xs 'exists-but-different) 'non-legal-symbols-also-present)
+  )
+
+(define (all-exist-but-all-different? xs)
+  (single-symbol-ensured? xs 'exists-but-different)
+  )
+
+(define (verify-files-by-def-list xs [base-dir (interpret-path "~")] #:strict? [strict? #t])
+  (define results (map (lambda (def) (verify-file-by-def def base-dir #:strict? strict?)) xs))
+  (cond
+    [(empty? xs) 'empty]
+    [(all-success? results) 'success]
+    [(some-exist? results) 'some-exist]
+    [(none-exist? results) 'none-exist]
+    [(all-exist-but-some-different? results) 'all-exist-but-some-different]
+    [(all-exist-but-all-different? results) 'all-exist-but-all-different]
+    )
+  )
+
+(define (path-from-def def [base-dir (interpret-path "~")])
+  (build-path base-dir (file-def-name def))
+  )
+
+(module+ test
+
+  (let*
+      (       
+       [test-def-1 (make-file-def "test-file-1" "test1")]
+       [test-path-1 (path-from-def test-def-1)]
+       
+       [test-def-1-fakey (make-file-def "test-file-1" "test1!?")]
+       [test-path-1-fakey (path-from-def test-def-1-fakey)]
+
+       [test-def-2 (make-file-def "test-file-2" "test2")]
+       [test-path-2 (path-from-def test-def-2)]
+
+       [test-def-2-fakey (make-file-def "test-file-2" "test2!?")]
+       [test-path-2-fakey (path-from-def test-def-2-fakey)]
+
+       [test-def-3 (make-file-def "test-file-3" "test3")]
+       [test-path-3 (path-from-def test-def-3)]
+
+       [defs-list-1 '()]
+       
+       [defs-list-2 (list test-def-1 test-def-2)]
+       [create-defs-list-2 (lambda () (for-each (lambda (def) (file-from-def def)) defs-list-2))]
+
+       [defs-list-2-fakey (list test-def-1-fakey test-def-2-fakey)]
+       [create-defs-list-2-fakey (lambda () (for-each (lambda (def) (file-from-def def)) defs-list-2-fakey))]
+
+       [defs-list-2-pseudofakey (list test-def-1 test-def-2-fakey)]
+
+       [all-paths (list test-path-1 test-path-2 test-path-3)]
+       [clean-paths (lambda () (for-each (lambda (fp) (when (file-exists? fp) (delete-file fp))) all-paths))]
+       [create-test-def-1-only (lambda () (file-from-def test-def-1))]
+       )
+    (run-tests
+     (test-suite "verify-files-by-def-list tests"
+                 (test-case "fd-xs-1 'empty"
+                            (check-equal? (verify-files-by-def-list defs-list-1) 'empty)
+                            )
+                 (test-case "fd-xs-2 'success"
+                            (create-defs-list-2)
+                            (check-equal? (verify-files-by-def-list defs-list-2) 'success)
+                            (clean-paths)
+                            )
+                 (test-case "fd-xs-3 'some-exist"
+                            (create-test-def-1-only)
+                            (check-equal? (verify-files-by-def-list defs-list-2) 'some-exist)
+                            (clean-paths)
+                            )
+                 (test-case "fd-xs-2 'none-exist"
+                            (check-equal? (verify-files-by-def-list defs-list-2) 'none-exist)
+                            )
+                 (test-case "fd-xs-4 'all-exist-but-all-different"
+                            (create-defs-list-2)
+                            (check-equal? (verify-files-by-def-list defs-list-2-fakey #:strict? #t)
+                                          'all-exist-but-all-different)
+                            (clean-paths)
+                            )
+                 (test-case "fd-xs-5 'all-exist-but-some-different"
+                            (create-defs-list-2)
+                            (check-equal? (verify-files-by-def-list defs-list-2-pseudofakey)
+                                          'all-exist-but-some-different)
+                            (clean-paths)
+                            )
+                 )
+     )
+    )
+  )
+
+#|
+file-from-def outputs three symbols: 'file-already-exists, 'successfully-overwritten, 'succesfully-created
+files-from-def-list should output these symbols:
+- 'all-successfully-created
+- 'all-successfully-overwritten
+- 'all-exist-already
+- 'some-created-and-some-existed
+- 'some-created-and-some-overwritten
+|#
+
+(define (all-successfully-created? xs)
+  (single-symbol-ensured? xs 'successfully-created)
+  )
+
+(define (all-successfully-overwritten? xs)
+  (single-symbol-ensured? xs 'successfully-overwritten)
+  )
+
+(define (all-existed-already? xs)
+  (single-symbol-ensured? xs 'file-already-exists)
+  )
+
+(define (some-created-some-existed? xs)
+  (symbols-ensured? xs '(successfully-created file-already-exists))
+  )
+
+(define (some-created-some-overwritten? xs)
+  (symbols-ensured? xs '(successfully-created successfully-overwritten))
+  )
+
+(define (files-from-def-list xs [base-dir (interpret-path "~")] #:overwrite? [overwrite? #f])
+  (define results (map (lambda (def) (file-from-def def base-dir overwrite?)) xs))
+  (cond
+    [(empty? xs) 'empty]
+    [(all-successfully-created? results) 'all-successfully-created]
+    [(all-successfully-overwritten? results) 'all-successfully-overwritten]
+    [(all-existed-already? results) 'all-exist-already]
+    [(some-created-some-existed? results) 'some-created-some-existed]
+    [(some-created-some-overwritten? results) 'some-created-some-overwritten]
+    )
+  )
+
+(define (ffdl-symbol-verifier setup-targets make-targets verify-targets overwrite? expected-symbol verify-symbol do-cleanup)
+  (when setup-targets (files-from-def-list setup-targets))
+  (define result (files-from-def-list make-targets #:overwrite? overwrite?))
+  (define success? (equal? result expected-symbol))
+  (define verify? (equal?
+                   (verify-files-by-def-list verify-targets #:strict? overwrite?)
+                   verify-symbol))
+  (do-cleanup)
+  (display (string-append (format "\nresult symbol: ~a" result) (format " success? ~a" success?) (format " verify? ~a \n" verify?)))
+  (and success? verify?)
+  )
+
+(module+ test
+
+  (let*
+      (
+       [test-def-1 (make-file-def "test-file-1" "test1")]
+       [test-path-1 (path-from-def test-def-1)]
+       
+       [test-def-2 (make-file-def "test-file-2" "test2")]
+       [test-path-2 (path-from-def test-def-2)]
+
+       [test-def-2-fakey (make-file-def "test-file-2" "test-2!?")]
+
+       [test-def-3 (make-file-def "test-file-3" "test3")]
+       [test-path-3 (path-from-def test-def-3)]
+
+       [test-defs-list-1 '()]
+
+       [all-paths (list test-path-1 test-path-2 test-path-3)]
+       [clean-paths (lambda () (for-each (lambda (fp) (when (file-exists? fp) (delete-file fp))) all-paths))]
+
+
+       [test-defs-list-2 (list test-def-1 test-def-2)]
+       [test-all-successfully-created? (lambda (make-targets verify-targets)
+                                          (ffdl-symbol-verifier #f make-targets verify-targets #f 'all-successfully-created
+                                                           'success clean-paths))
+                                        ]
+
+       [test-defs-list-2-fakey (list test-def-1 test-def-2-fakey)]
+       [test-all-successfully-overwritten? (lambda (setup-targets make-targets verify-targets)
+                                              (ffdl-symbol-verifier setup-targets make-targets verify-targets #t
+                                                               'all-successfully-overwritten 'success clean-paths))]
+       
+       [test-all-already-exist? (lambda (setup-targets make-targets verify-targets)
+                                   (ffdl-symbol-verifier setup-targets make-targets verify-targets #f
+                                                    'all-exist-already 'success clean-paths))]
+
+       [test-defs-list-3 (list test-def-1 test-def-3)]
+       [test-some-created-some-existed? (lambda (setup-targets make-targets verify-targets)
+                                           (ffdl-symbol-verifier setup-targets make-targets verify-targets #f
+                                                            'some-created-some-existed 'success clean-paths))]
+
+       [test-some-created-some-overwritten? (lambda (setup-targets make-targets verify-targets)
+                                               (ffdl-symbol-verifier setup-targets make-targets verify-targets #t
+                                                                'some-created-some-overwritten 'success clean-paths))]
+       )
+    (run-tests
+     (test-suite "files-from-def-list"
+                 (test-case "test-defs-list-1 'empty"
+                            (check-equal? (files-from-def-list test-defs-list-1)
+                                          'empty)
+                            )
+                 (test-case "test-defs-list-2 'all-successfully-created"
+                            (check-true (test-all-successfully-created? test-defs-list-2 test-defs-list-2)) 
+                            )
+                 (test-case "test-defs-list-2 'all-successfully-overwritten"
+                            (check-true (test-all-successfully-overwritten?
+                             test-defs-list-2 test-defs-list-2-fakey test-defs-list-2-fakey))
+                            )
+                 (test-case "test-defs-list-2 'all-already-exist"
+                            (check-true (test-all-already-exist?
+                             test-defs-list-2 test-defs-list-2-fakey test-defs-list-2))
+                            )
+                 (test-case "test-defs-list-3 'some-created-some-existed"
+                            (check-true (test-some-created-some-existed?
+                             test-defs-list-2 test-defs-list-3 test-defs-list-3))
+                            )
+                 (test-case "test-defs-list-3 'some-created-some-overwritten"
+                            (check-true (test-some-created-some-overwritten?
+                             test-defs-list-2 test-defs-list-3 test-defs-list-3))
+                            )
+                 )))
+  )
+
 (define (delete-file-from-def file-def [base-dir (interpret-path "~")] [strict? #f])
   (define fp (build-path base-dir (file-def-name file-def)))
   (define verification (verify-file-by-def file-def base-dir strict?))
@@ -556,6 +1088,24 @@ file utilities
    )
 
   )
+
+(define (delete-files-by-def-list xs [base-dir (interpret-path "~")] [strict? #f] [strict-all? #f])
+  #t
+  )
+
+(module+ test
+
+  (run-tests
+   (test-suite "delete-files-by-def-list test"
+               (test-case "fd-xs-1 'empty" #t)
+               (test-case "fd-xs-2 'success" #t)
+               (test-case "fd-xs-3 'success #:strict? true" #t)
+               (test-case "fd-xs-4 'success-some #:strict? true" #t)
+               (test-case "fd-xs-5 'all-exist-but-some-different #:strict-all? true" #t)
+               (test-case "fd-xs-6 'all-exist-but-all-different #:strict-all? true" #t)
+               )
+   )
+  )
        
 
 #|
@@ -564,28 +1114,14 @@ dir-tree utilities
 
 (struct dir-tree (name files children) #:transparent)
 
-(define (list-of-file-def? xs)
-  (andmap (lambda (x) (file-def? x)) xs)
-  )
-
 (define (list-of-dir-tree? xs)
-  (andmap (lambda (x) (dir-tree? x)) xs)
+  (ensure-symbols '(hello test1 hello test1 test2 hello test1 hello test1 test2 test2) '(hello test1 test2))(andmap (lambda (x) (dir-tree? x)) xs)
   )
 
 (module+ test
-
-  (define fd-xs-1 '())
-  (define fd-xs-2 (list tf-1 tf-2))
+  
   (define dt-xs-1 '())
   (define dt-xs-2 (list (dir-tree "test" '() '())))
-
-  (run-tests
-   (test-suite "testing list-of-file-def?"
-               (test-case "fd-xs-1 true" (check-true (list-of-file-def? fd-xs-1)))
-               (test-case "fd-xs-2 true" (check-true (list-of-file-def? fd-xs-2)))
-               (test-case "l1 not true" (check-true (not (list-of-file-def? l1))))
-               )
-   )
 
   (run-tests
    (test-suite "testing list-of-dir-tree?"
@@ -658,14 +1194,137 @@ dir-tree utilities
 
 (module+ test
 
+  (define std-test-dirpath (interpret-path "~/test-dir"))
+
+  (define test-files-1 (list tf-1 tf-2))
+  
+  (define test-files-2 (list
+                        (make-file-def "test-file-3" "test3")
+                        (make-file-def "test-file-4" "test4")
+                        (make-file-def "test-file-5" "test5")
+                        )
+    )
+
+  (define test-children-1 (list
+                           (make-dir-tree "test-child-1" '() '())
+                           (make-dir-tree "test-child-2" '() '())
+                           )
+    )
+                                     
+
+  (define test-children-2 (list
+                           (make-dir-tree "test-child-3" '()
+                                          (make-dir-tree "test-child-4" test-files-2 '()
+                                                         )
+                                          )
+                           (make-dir-tree "test-child-4" test-files-2 '()
+                                          )
+                           )
+    )
+
+  (define test-children-3 (list
+                           (make-dir-tree "test-child-5" test-files-1 test-children-2)
+                           (make-dir-tree "test-child-6" '() '())
+                           (make-dir-tree "test-child-7" '() test-children-1)
+                           (make-dir-tree "test-child-8" test-files-2 test-children-1)
+                           )
+    )
+
+  (define dirtest-1 (make-dir-tree "test-dir" '() '()))
+
+  (define create-dirtest-1 (lambda ()
+                             (unless (directory-exists? std-test-dirpath)
+                               (make-directory std-test-dirpath)
+                               )
+                             )
+    )
+  
+  (define dirtest-2 (make-dir-tree "test-dir" '() test-children-1))
+
+  (define create-dirtest-2 (lambda ()
+                             (unless (directory-exists? std-test-dirpath)
+                               (make-directory std-test-dirpath)
+                               (let (
+                                     [tc-1-path (build-path std-test-dirpath "test-child-1")]
+                                     [tc-2-path (build-path std-test-dirpath "test-child-2")]
+                                     )
+                                 (make-directory tc-1-path)
+                                 (make-directory tc-2-path)
+                                 )
+                               )
+                             )
+    )
+  
+  (define dirtest-3 (make-dir-tree "test-dir" test-files-1 test-children-1))
+  (define create-dirtest-3 #t)
+  (define dirtest-4 (make-dir-tree "test-dir" test-files-2 test-children-3))
+  (define create-dirtest-4 #t)
+  (define dirtest-5 (make-dir-tree "test-dir" test-files-2 test-children-1))
+  (define create-dirtest-5 #t)
+  (define dirtest-6 (make-dir-tree "test-dir" test-files-1 test-children-2))
+  (define create-dirtest-6 #t)
+  (define dirtest-7 (make-dir-tree "test-dir" test-files-1 test-children-3))
+  (define create-dirtest-7 #t)
+
   (run-tests
    (test-suite "verify-dir-by-tree tests"
-               (test-case "verify-dir-by-tree empty files, empty children 'success" #t)
-               (test-case "verify-dir-by-tree empty files, non-empty children 'success" #t)
-               (test-case "verify-dir-by-tree non-empty files, non-empty children 'success" #t)
-               (test-case "verify-dir-by-tree multiply-nested 'success" #t)
-               (test-case "verify-dir-by-tree 'does-not-exist" #t)
-               (test-case "verify-dir-by-tree 'exists-but-different" #t)
+               #:after (
+                        (lambda ()
+                          (when (directory-exists? std-test-dirpath) (delete-directory/files std-test-dirpath))
+                          )
+                        )
+               (test-case "test-1: verify-dir-by-tree empty files, empty children 'success"
+                          (create-dirtest-1)
+                          (check-equal? 'success
+                                        (verify-dir-by-tree dirtest-1))
+                          )
+               (test-case "test-2: verify-dir-by-tree empty files, non-empty children 'success"
+                          (create-dirtest-2)
+                          (check-equal? 'success
+                                        (verify-dir-by-tree dirtest-2))
+                          )
+               (test-case "test-3: verify-dir-by-tree non-empty files, non-empty children 'success"
+                          (create-dirtest-3)
+                          (check-equal? 'success
+                                        (verify-dir-by-tree dirtest-3))
+                          )
+               (test-case "test-4: verify-dir-by-tree multiply-nested 'success"
+                          (create-dirtest-4)
+                          (check-equal? 'success
+                                        (verify-dir-by-tree dirtest-4))
+                          )
+               (test-case "test-5: verify-dir-by-tree 'does-not-exist"
+                          (check-equal? 'does-not-exist
+                                        (verify-dir-by-tree dirtest-1))
+                          )
+               (test-case "test-6: verify-dir-by-tree 'exists-but-different-file-names for files"
+                          (create-dirtest-5)
+                          (check-equal? 'exists-but-different-file-names
+                                        (verify-dir-by-tree dirtest-5))
+                          )
+               (test-case "test-7: verify-dir-by-tree 'exists-but-different-file-contents for files, #:strict? true"
+                          (create-dirtest-6)
+                          (check-equal? 'exists-but-different-file-contents
+                                        (verify-dir-by-tree dirtest-6))
+                          )
+               (test-case "test-8: verify-dir-by-tree 'exists-but-different-children for children"
+                          (create-dirtest-7)
+                          (check-equal? 'exists-but-different-children
+                                        (verify-dir-by-tree dirtest-7))
+                          )
+               )
+   )
+  )
+
+(define (verify-dirs-by-tree-list xs)
+  #t
+  )
+
+(module+ test
+
+  (run-tests
+   (test-suite "verify-dir-by-tree-list"
+               (test-case "bunk" #t)
                )
    )
   )
@@ -690,6 +1349,19 @@ dir-tree utilities
   (run-tests
    (test-suite "dir-from-tree tests"
                (test-case "dir-from-tree empty files, empty children test" #t)
+               )
+   )
+  )
+
+(define (dirs-from-tree-list xs)
+  #t
+  )
+
+(module+ test
+
+  (run-tests
+   (test-suite "dirs-from-tree-list tests"
+               (test-case "bunk" #t)
                )
    )
   )
