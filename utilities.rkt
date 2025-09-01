@@ -992,7 +992,6 @@ files-from-def-list should output these symbols:
                    (verify-files-by-def-list verify-targets #:strict? overwrite?)
                    verify-symbol))
   (do-cleanup)
-  (display (string-append (format "\nresult symbol: ~a" result) (format " success? ~a" success?) (format " verify? ~a \n" verify?)))
   (and success? verify?)
   )
 
