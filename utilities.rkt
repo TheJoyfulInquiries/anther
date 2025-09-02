@@ -992,7 +992,6 @@ files-from-def-list should output these symbols:
                    (verify-files-by-def-list verify-targets #:strict? overwrite?)
                    verify-symbol))
   (do-cleanup)
-  (display (string-append (format "\nresult symbol: ~a" result) (format " success? ~a" success?) (format " verify? ~a \n" verify?)))
   (and success? verify?)
   )
 
@@ -1069,24 +1068,56 @@ files-from-def-list should output these symbols:
                  )))
   )
 
-(define (delete-file-from-def file-def [base-dir (interpret-path "~")] [strict? #f])
+(define (delete-file-from-def file-def [base-dir (interpret-path "~")] #:strict? [strict? #f])
   (define fp (build-path base-dir (file-def-name file-def)))
-  (define verification (verify-file-by-def file-def base-dir strict?))
+  (define verification (verify-file-by-def file-def base-dir #:strict? strict?))
   (when (equal? verification 'success) (delete-file fp))
   verification
   )
 
+(define (dffd-symbol-verifier setup-target delete-target verify-target strict?
+                              setup-symbol delete-symbol verify-symbol do-cleanup)
+  (define setup-result (file-from-def setup-target))
+  (define delete-result (delete-file-from-def delete-target #:strict? strict?))
+  (define verify-result (verify-file-by-def verify-target #:strict? strict?))
+  (do-cleanup)
+  (and
+   (equal? setup-result setup-symbol)
+   (equal? delete-result delete-symbol)
+   (equal? verify-target verify-symbol)
+   )
+  )
+
 (module+ test
 
-  (run-tests
-   (test-suite "delete-file-from-def tests"
-               (test-case "delete-file-from-def 'success not-strict" #t)
-               (test-case "delete-file-from-def 'success strict" #t)
-               (test-case "delete-file-from-def 'exists-but-different" #t)
-               (test-case "delete-file-from-def 'does-not-exist" #t)
-               )
-   )
-
+  (let*
+      (
+       [file-def-1 (make-file-def "test-file-1" "test1")]
+       [fp-1 (path-from-def file-def-1)]
+       [file-def-1-fakey (make-file-def "test-file-1" "test1!?")]
+       
+       [file-def-2 (make-file-def "test-file-2" "test2")]
+       [fp-2 (path-from-def file-def-2)]
+       
+       [all-paths (list fp-1 fp-2)]
+       [clean-paths (lambda () (for-each (lambda (fp) (when (file-exists? fp) (delete-file fp))) all-paths))]
+       )
+    (run-tests
+     (test-suite "delete-file-from-def tests"
+                 (test-case "delete-file-from-def 'success not-strict"
+                            (dffd-symbol-verifier file-def-1 file-def-1 file-def-1 #f
+                                                  'success 'success 'does-not-exist clean-paths))
+                 (test-case "delete-file-from-def 'success strict"
+                            (dffd-symbol-verifier file-def-1 file-def-1 file-def-1 #t
+                                                  'success 'success 'does-not-exist clean-paths))
+                 (test-case "delete-file-from-def 'exists-but-different"
+                            (dffd-symbol-verifier file-def-1 file-def-1-fakey file-def-1-fakey #t
+                                                  'success 'exists-but-different 'success clean-paths))
+                 (test-case "delete-file-from-def 'does-not-exist"
+                            (dffd-symbol-verifier file-def-2 file-def-1 file-def-2 #t
+                                                  'success 'does-not-exist 'success clean-paths))
+                 )
+     ))
   )
 
 (define (delete-files-by-def-list xs [base-dir (interpret-path "~")] [strict? #f] [strict-all? #f])
